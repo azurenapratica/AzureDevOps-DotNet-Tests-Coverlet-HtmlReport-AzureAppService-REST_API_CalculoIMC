@@ -88,7 +88,7 @@ stages:
     - task: AzureWebApp@1
       displayName: Deployment da Web App no Azure App Service em Linux
       inputs:
-        azureSubscription: 'Microsoft Azure Sponsorship(f3e7d90b-efba-4481-ac3d-d8df26b6235d)'
+        azureSubscription: 'AZURE-SUBSCRIPTION'
         appType: 'webAppLinux'
         appName: 'anpcalculoimc'
         package: '$(System.DefaultWorkingDirectory)/publish/*.zip'
