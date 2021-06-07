@@ -1,0 +1,94 @@
+trigger:
+  - main
+  
+resources:
+- repo: self
+
+variables:
+  buildConfiguration: 'Release'
+  vmImageName: 'ubuntu-latest'
+  artifactWebApp: 'apiCalculoIMC'
+  azureWebAppName: 'anpcalculoimc'
+  testProject: '**/Calculos.Common.Tests.csproj'
+
+stages:
+- stage: Tests
+  displayName: Execução de testes
+  jobs:
+  - job: Tests
+    displayName: Testes em .NET
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: DotNetCoreCLI@2
+      displayName: Executar Testes com geração de arquivo com a cobertura
+      inputs:
+        command: 'test'
+        projects: $(testProject)
+        arguments: '--verbosity minimal --logger:"html;LogFileName=$(Build.SourcesDirectory)/resultado-testes.html" --collect:"XPlat Code Coverage"'
+        testRunTitle: 'Execução de Testes em .NET'
+    - task: PublishHtmlReport@1
+      inputs:
+        reportDir: '$(Build.SourcesDirectory)/resultado-testes.html'
+      displayName: Publicar logs em HTML de execução dos testes
+      condition: always()
+    - script: dotnet tool install --global dotnet-reportgenerator-globaltool --version 4.8.9
+      displayName: Instalar ReportGenerator
+      condition: always()
+    - script: reportgenerator "-reports:$(Agent.TempDirectory)/**/coverage.cobertura.xml" "-targetdir:$(Build.SourcesDirectory)/coveragereport" -reporttypes:Cobertura
+      displayName: Gerar XML com dados do Coverlet
+      condition: always()
+    - script: |
+        cd $(Build.SourcesDirectory)/coveragereport
+        ls
+      displayName: Listar arquivo XML gerado
+      condition: always()
+    - task: PublishCodeCoverageResults@1  
+      displayName: 'Publicar cobertura de código'
+      inputs:  
+        codeCoverageTool: Cobertura  
+        summaryFileLocation: '$(Build.SourcesDirectory)/coveragereport/Cobertura.xml' 
+      condition: always()
+- stage: Build
+  displayName: Build da Web App
+  dependsOn: Tests
+  jobs:
+  - job: Build
+    displayName: Build da Web App em .NET
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: DotNetCoreCLI@2
+      displayName: Build + Publish gerando Artifact
+      inputs:
+        command: publish
+        publishWebProjects: True
+        arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)'
+        zipAfterPublish: True
+    - task: PublishPipelineArtifact@1
+      displayName: Publish do Artifact
+      inputs:
+        targetPath: '$(Build.ArtifactStagingDirectory)' 
+        artifactName: $(artifactWebApp)
+- stage: Deployment
+  displayName: Deployment da Web App
+  dependsOn: Build
+  jobs:
+  - job: Deployment
+    displayName: Deployment da Web App no Azure
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: DownloadPipelineArtifact@2
+      displayName: Download do Artifact gerado no stage de Build
+      inputs:
+        buildType: 'current'
+        artifactName: $(artifactWebApp)
+        targetPath: '$(System.DefaultWorkingDirectory)/publish'
+    - task: AzureWebApp@1
+      displayName: Deployment da Web App no Azure App Service em Linux
+      inputs:
+        azureSubscription: 'Microsoft Azure Sponsorship(f3e7d90b-efba-4481-ac3d-d8df26b6235d)'
+        appType: 'webAppLinux'
+        appName: 'anpcalculoimc'
+        package: '$(System.DefaultWorkingDirectory)/publish/*.zip'
